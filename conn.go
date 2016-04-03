@@ -15,6 +15,7 @@ import (
 	"math/rand"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -155,26 +156,28 @@ type Conn struct {
 
 	// Message writer fields.
 	writeCompressionEnabled bool
-	writeErr                error
-	writeBuf                []byte // frame is constructed in this buffer.
-	writePos                int    // end of data in writeBuf.
-	writeFrameType          int    // type of the current frame.
-	writeSeq                int    // incremented to invalidate message writers.
-	writeDeadline           time.Time
+
+	writeErr       error
+	writeBuf       []byte // frame is constructed in this buffer.
+	writePos       int    // end of data in writeBuf.
+	writeFrameType int    // type of the current frame.
+	writeSeq       int    // incremented to invalidate message writers.
+	writeDeadline  time.Time
 
 	// Read fields
 	readMessageCompressed bool
-	readErr               error
-	br                    *bufio.Reader
-	readRemaining         int64 // bytes remaining in current frame.
-	readFinal             bool  // true the current message has more frames.
-	readSeq               int   // incremented to invalidate message readers.
-	readLength            int64 // Message size.
-	readLimit             int64 // Maximum message size.
-	readMaskPos           int
-	readMaskKey           [4]byte
-	handlePong            func(string) error
-	handlePing            func(string) error
+
+	readErr       error
+	br            *bufio.Reader
+	readRemaining int64 // bytes remaining in current frame.
+	readFinal     bool  // true the current message has more frames.
+	readSeq       int   // incremented to invalidate message readers.
+	readLength    int64 // Message size.
+	readLimit     int64 // Maximum message size.
+	readMaskPos   int
+	readMaskKey   [4]byte
+	handlePong    func(string) error
+	handlePing    func(string) error
 }
 
 func newConn(conn net.Conn, isServer bool, readBufferSize, writeBufferSize int) *Conn {
@@ -341,12 +344,14 @@ func (c *Conn) NextWriter(messageType int) (io.WriteCloser, error) {
 
 	c.writeFrameType = messageType
 
-	// return compression writer
-	if len(c.compression) > 0 && c.writeCompressionEnabled {
-		return NewFlateWriter(messageWriter{c, c.writeSeq})
+	var wc io.WriteCloser = messageWriter{c, c.writeSeq}
+
+	// Return compression writer on data frame
+	if len(c.compression) > 0 && c.writeCompressionEnabled && isData(messageType) {
+		return NewFlateWriter(wc)
 	}
 
-	return messageWriter{c, c.writeSeq}, nil
+	return wc, nil
 }
 
 func (c *Conn) flushFrame(final bool, extra []byte) error {
@@ -366,6 +371,8 @@ func (c *Conn) flushFrame(final bool, extra []byte) error {
 		b0 |= finalBit
 	}
 
+	// Check compression and that it is not a continuation frame
+	// as those should not have compression bit set per RFC
 	if len(c.compression) > 0 && c.writeCompressionEnabled &&
 		c.writeFrameType != continuationFrame {
 
@@ -747,7 +754,7 @@ func (c *Conn) handleProtocolError(message string) error {
 //
 // The NextReader method and the readers returned from the method cannot be
 // accessed by more than one goroutine at a time.
-func (c *Conn) NextReader() (messageType int, r io.Reader, err error) {
+func (c *Conn) NextReader() (int, io.Reader, error) {
 
 	c.readSeq++
 	c.readLength = 0
@@ -759,10 +766,15 @@ func (c *Conn) NextReader() (messageType int, r io.Reader, err error) {
 			break
 		}
 		if isData(frameType) {
+			var r io.Reader = messageReader{c, c.readSeq}
+
 			if len(c.compression) > 0 && c.readMessageCompressed {
-				return frameType, flate.NewReader(messageReader{c, c.readSeq}), nil
+				// Append compression bytes to output on the final read
+				r = flate.NewReader(io.MultiReader(r, strings.NewReader("\x00\x00\xff\xff\x01\x00\x00\xff\xff")))
+				//return frameType, flate.NewReader(messageReader{c, c.readSeq}), nil
 			}
-			return frameType, messageReader{c, c.readSeq}, nil
+			//return frameType, messageReader{c, c.readSeq}, nil
+			return frameType, r, nil
 		}
 	}
 	return noFrame, nil, c.readErr
@@ -796,20 +808,9 @@ func (r messageReader) Read(b []byte) (int, error) {
 
 		if r.c.readFinal {
 			r.c.readSeq++
-			// Append compression bytes to output on the final read
+			// Reset compression for the next frame
 			if len(r.c.compression) > 0 && r.c.readMessageCompressed {
-				b[0] = 0x00
-				b[1] = 0x00
-				b[2] = 0xff
-				b[3] = 0xff
-				b[4] = 0x01
-				b[5] = 0x00
-				b[6] = 0x00
-				b[7] = 0xff
-				b[8] = 0xff
-				// Reset compression for the next frame
 				r.c.readMessageCompressed = false
-				return 9, io.EOF
 			}
 
 			return 0, io.EOF

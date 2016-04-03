@@ -3,6 +3,7 @@ package websocket
 import (
 	"bytes"
 	"compress/flate"
+	"fmt"
 	"io"
 )
 
@@ -16,6 +17,77 @@ const (
 	// Deflate buffer size
 	compressDeflateBufferSize = 1024
 )
+
+// Sits between a flate writer and the underlying writer i.e. messageWriter
+// Truncates last bytes of flate compresses message
+type AdaptorWriter struct {
+	last4bytes [4]byte
+
+	last4Pos int
+
+	msgWriter io.Writer
+}
+
+func NewAdaptorWriter(w io.Writer) *AdaptorWriter {
+	return &AdaptorWriter{msgWriter: w}
+}
+
+func (aw *AdaptorWriter) Write(p []byte) (n int, err error) {
+	fmt.Println("Data size", len(p))
+	fmt.Println("Curr last 4", aw.last4bytes)
+
+	// Write the previous 4 bytes
+	if aw.last4Pos == 4 {
+		if _, err = aw.msgWriter.Write(aw.last4bytes[:]); err != nil {
+			return
+		}
+		aw.last4Pos = 0
+	}
+
+	switch {
+	case len(p) < (4 - aw.last4Pos):
+		copy(aw.last4bytes[aw.last4Pos:], p)
+		n = len(p)
+		err = nil
+		//aw.last4Pos =
+
+		//aw.last4bytes[aw.last4Pos:],
+		//case len(p)==4:
+	}
+
+	//copy(aw.last4bytes[aw.last4Pos:], p)
+	//copied := 3 - aw.last4bytes
+	//
+
+	//fmt.Println("last 4 (after)", aw.last4bytes)
+
+	// Write everything but the last 4 bytes
+	//if len(p) > 4 {
+	//fmt.Printf("writing to backend: %x\n", p[:len(p)-5])
+	n, err = aw.msgWriter.Write(p[:len(p)-5])
+	//}
+
+	return
+}
+
+func (aw *AdaptorWriter) writeEndBlock() (n int, err error) {
+	// Only 1 byte to send if not endining in 0
+	if aw.last4bytes[3] != 0x00 {
+		n, err = aw.msgWriter.Write([]byte{aw.last4bytes[0]})
+	} else {
+		//n = 0, err = io.EOF
+	}
+
+	return
+}
+
+func (aw *AdaptorWriter) Close() error {
+	_, err := aw.writeEndBlock()
+	//aw.msgWriter.Close()
+	return err
+}
+
+/*----------------------------------------------------------------------*/
 
 type FlateWriter struct {
 	flt *flate.Writer
@@ -117,12 +189,13 @@ func (fw *FlateWriter) Write(b []byte) (n int, err error) {
 }
 
 func (fw *FlateWriter) writeEndBlock() (n int, err error) {
-	// Append 0 bit and truncate last 4 bytes
+	// Append 0 bit if not ending in a 0 bit
 	var t []byte
 	if fw.last5[4] != 0x00 {
 		t = append(fw.last5, 0x00)
 	}
 	//t = t[:len(t)-5]
+	// Truncate last 4 bytes
 	n, err = fw.msgWriter.Write(t[:len(t)-5])
 	return
 }
