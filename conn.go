@@ -9,7 +9,7 @@ import (
 	"compress/flate"
 	"encoding/binary"
 	"errors"
-	//"fmt"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -348,7 +348,9 @@ func (c *Conn) NextWriter(messageType int) (io.WriteCloser, error) {
 
 	// Return compression writer on data frame
 	if len(c.compression) > 0 && c.writeCompressionEnabled && isData(messageType) {
-		return NewFlateWriter(wc)
+		//return flate.NewWriter(NewFlateAdaptor(wc), compressDeflateLevel)
+		return NewFlateAdaptorWriter(wc, compressDeflateLevel)
+		//return NewFlateWriter(wc)
 	}
 
 	return wc, nil
@@ -371,12 +373,15 @@ func (c *Conn) flushFrame(final bool, extra []byte) error {
 		b0 |= finalBit
 	}
 
+	fmt.Println("frame type:", c.writeFrameType)
+
 	// Check compression and that it is not a continuation frame
 	// as those should not have compression bit set per RFC
+
 	if len(c.compression) > 0 && c.writeCompressionEnabled &&
 		c.writeFrameType != continuationFrame {
-
-		b0 |= compressionBit
+		fmt.Println("set compress bit", c.writeFrameType)
+		//b0 |= compressionBit
 	}
 
 	b1 := byte(0)
@@ -552,12 +557,17 @@ func (c *Conn) WriteMessage(messageType int, data []byte) error {
 	var w messageWriter
 
 	if len(c.compression) > 0 && c.writeCompressionEnabled {
-
-		cw := wr.(*FlateWriter)
-		if _, err = cw.write(true, data); err != nil {
+		// TODO:
+		fw := wr.(*FlateAdaptorWriter)
+		if _, err = fw.Write(data); err != nil {
 			return err
 		}
-		w = cw.msgWriter.(messageWriter)
+		return fw.Close()
+		//cw := wr.(*FlateWriter)
+		//if _, err = cw.write(true, data); err != nil {
+		//	return err
+		//}
+		//w = cw.msgWriter.(messageWriter)
 
 	} else {
 
@@ -565,13 +575,16 @@ func (c *Conn) WriteMessage(messageType int, data []byte) error {
 		if _, err = w.write(true, data); err != nil {
 			return err
 		}
-	}
-	// final flush
-	if c.writeSeq == w.seq {
-		if err = c.flushFrame(true, nil); err != nil {
-			return err
+
+		// final flush
+		if c.writeSeq == w.seq {
+			if err = c.flushFrame(true, nil); err != nil {
+				return err
+			}
 		}
+
 	}
+
 	return nil
 }
 

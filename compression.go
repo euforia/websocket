@@ -20,19 +20,21 @@ const (
 
 // Sits between a flate writer and the underlying writer i.e. messageWriter
 // Truncates last bytes of flate compresses message
-type AdaptorWriter struct {
-	last4bytes [4]byte
+type FlateAdaptor struct {
+	last4bytes []byte
 
 	last4Pos int
 
-	msgWriter io.Writer
+	msgWriter io.WriteCloser
 }
 
-func NewAdaptorWriter(w io.Writer) *AdaptorWriter {
-	return &AdaptorWriter{msgWriter: w}
+func NewFlateAdaptor(w io.WriteCloser) *FlateAdaptor {
+	fmt.Println("called")
+	return &FlateAdaptor{msgWriter: w, last4bytes: []byte{}, last4Pos: 0}
 }
 
-func (aw *AdaptorWriter) Write(p []byte) (n int, err error) {
+/*
+func (aw *FlateAdaptor) Write(p []byte) (n int, err error) {
 	fmt.Println("Data size", len(p))
 	fmt.Println("Curr last 4", aw.last4bytes)
 
@@ -69,22 +71,104 @@ func (aw *AdaptorWriter) Write(p []byte) (n int, err error) {
 
 	return
 }
+*/
 
-func (aw *AdaptorWriter) writeEndBlock() (n int, err error) {
-	// Only 1 byte to send if not endining in 0
+func (aw *FlateAdaptor) Write(p []byte) (n int, err error) {
+	//fmt.Printf("top writing: %d %x\n", len(p), p)
+
+	//buffSpace := 4 - aw.last4Pos
+	////
+	t := append(aw.last4bytes, p...)
+	fmt.Printf("t=%x\n", t)
+
+	if len(t) > 4 {
+		aw.last4bytes = make([]byte, 4)
+		copy(aw.last4bytes, t[len(t)-4:])
+		//aw.last4bytes = t[len(t)-4:]
+		fmt.Printf("l=%x; writing (-4) : %x\n", aw.last4bytes, t[:len(t)-4])
+		_, err = aw.msgWriter.Write(t[:len(t)-4])
+	} else {
+		aw.last4bytes = make([]byte, len(t))
+		aw.last4bytes = t
+		fmt.Printf("l=%x\n", aw.last4bytes)
+	}
+	////
+	/*
+		if len(p) > buffSpace {
+
+			t := append(aw.last4bytes[:aw.last4Pos], p...)
+			fmt.Printf("full: %x\n", t)
+
+			copy(aw.last4bytes, t[len(t)-4:])
+
+			fmt.Printf("last4 : %d - %x\n", len(aw.last4bytes), aw.last4bytes)
+
+			fmt.Printf("writing (-4) : %x\n", t[:len(t)-4])
+			if _, err = aw.msgWriter.Write(t[:len(t)-4]); err == nil {
+				aw.last4Pos = 4
+			}
+		} else {
+
+			copy(aw.last4bytes[aw.last4Pos:], p)
+			fmt.Printf("%d - %v\n", len(aw.last4bytes), aw.last4bytes)
+
+			aw.last4Pos += len(p)
+		}
+	*/
+
+	n = len(p)
+
+	//fmt.Printf("last4: %x\n", aw.last4bytes)
+	fmt.Printf("l=%x\n", aw.last4bytes)
+	return
+}
+
+func (aw *FlateAdaptor) writeEndBlock() (n int, err error) {
+	// Only 1 byte to send if not ending in 0 and the rest it thown out.
+	//fmt.Printf("size: %d\n", len(aws.))
+	fmt.Printf("endblock %d: %x\n", len(aw.last4bytes), aw.last4bytes)
+
 	if aw.last4bytes[3] != 0x00 {
 		n, err = aw.msgWriter.Write([]byte{aw.last4bytes[0]})
-	} else {
-		//n = 0, err = io.EOF
 	}
+	//else {
+	//n = 0, err = io.EOF
+	//}
 
 	return
 }
 
-func (aw *AdaptorWriter) Close() error {
-	_, err := aw.writeEndBlock()
-	//aw.msgWriter.Close()
-	return err
+func (aw *FlateAdaptor) Close() (err error) {
+	if _, err = aw.writeEndBlock(); err == nil {
+		err = aw.msgWriter.Close()
+	}
+	return
+}
+
+type FlateAdaptorWriter struct {
+	flWriter  *flate.Writer
+	flAdaptor *FlateAdaptor
+}
+
+func NewFlateAdaptorWriter(msgWriter io.WriteCloser, level int) (faw *FlateAdaptorWriter, err error) {
+	faw = &FlateAdaptorWriter{
+		flAdaptor: NewFlateAdaptor(msgWriter),
+	}
+	faw.flWriter, err = flate.NewWriter(faw.flAdaptor, level)
+	return
+}
+
+func (faw *FlateAdaptorWriter) Write(p []byte) (int, error) {
+	//fmt.Printf("String:%s\n", p)
+	return faw.flWriter.Write(p)
+}
+
+func (faw *FlateAdaptorWriter) Close() (err error) {
+	if err = faw.flWriter.Close(); err == nil {
+		err = faw.flAdaptor.Close()
+	}
+
+	return
 }
 
 /*----------------------------------------------------------------------*/
