@@ -336,9 +336,14 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (*Conn, *http.Re
 	resp.Body = ioutil.NopCloser(bytes.NewReader([]byte{}))
 	conn.subprotocol = resp.Header.Get("Sec-Websocket-Protocol")
 
-	conn.compression = resp.Header.Get("Sec-WebSocket-Extensions")
-	if len(conn.compression) > 0 {
-		conn.writeCompressionEnabled = true
+	/*
+		conn.compression = resp.Header.Get("Sec-WebSocket-Extensions")
+		if len(conn.compression) > 0 {
+			conn.writeCompressionEnabled = true
+		}
+	*/
+	if len(resp.Header.Get("Sec-WebSocket-Extensions")) > 0 {
+		conn.compressionNegotiated = true
 	}
 
 	netConn.SetDeadline(time.Time{})

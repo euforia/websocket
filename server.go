@@ -106,11 +106,10 @@ func (u *Upgrader) selectCompressionExtension(r *http.Request) (string, bool, er
 			ext := strings.TrimSuffix(extOpts[0], ";")
 			// Find and return extension with supported options.
 			for _, e := range u.Extensions {
-				// Check if server supports supplied user extension and client request contains
-				// the extension name.
+				// Check if server supports supplied extension
 				if strings.HasPrefix(e, ext) {
 					if e != CompressPermessageDeflate {
-						return "", false, fmt.Errorf("Compression algorithm not supported: %s", e)
+						return "", false, fmt.Errorf("Compression options not supported: %s", e)
 					}
 					return e, true, nil
 				}
@@ -180,7 +179,7 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 
 	c := newConn(netConn, true, u.ReadBufferSize, u.WriteBufferSize)
 	c.subprotocol = subprotocol
-	c.compression, c.writeCompressionEnabled, err = u.selectCompressionExtension(r)
+	_, c.compressionNegotiated, err = u.selectCompressionExtension(r)
 	if err != nil {
 		return u.returnError(w, r, http.StatusInternalServerError, err.Error())
 	}
@@ -213,9 +212,12 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 		}
 	}
 	// Set the selected compression header if enabled.
-	if len(c.compression) > 0 && c.writeCompressionEnabled {
-		p = append(p, "Sec-WebSocket-Extensions: "+c.compression+"\r\n"...)
+	if c.compressionNegotiated {
+		// Turn compression on by default
+		c.writeCompressionEnabled = true
+		p = append(p, "Sec-WebSocket-Extensions: "+CompressPermessageDeflate+"\r\n"...)
 	}
+
 	p = append(p, "\r\n"...)
 
 	// Clear deadlines set by HTTP server.

@@ -1,7 +1,7 @@
 package websocket
 
 import (
-	"bytes"
+	//"bytes"
 	"compress/flate"
 	//"fmt"
 	"io"
@@ -13,36 +13,33 @@ const (
 
 	// Deflate compression level
 	compressDeflateLevel int = 3
-
-	// Deflate buffer size
-	compressDeflateBufferSize = 1024
 )
 
 // Sits between a flate writer and the underlying writer i.e. messageWriter
 // Truncates last bytes of flate compresses message
 type FlateAdaptor struct {
-	last4bytes []byte
+	last5bytes []byte
 	msgWriter  io.WriteCloser
 }
 
 func NewFlateAdaptor(w io.WriteCloser) *FlateAdaptor {
 	return &FlateAdaptor{
 		msgWriter:  w,
-		last4bytes: []byte{},
+		last5bytes: []byte{},
 	}
 }
 
 func (aw *FlateAdaptor) Write(p []byte) (n int, err error) {
 
-	t := append(aw.last4bytes, p...)
+	t := append(aw.last5bytes, p...)
 
 	if len(t) > 4 {
-		aw.last4bytes = make([]byte, 5)
-		copy(aw.last4bytes, t[len(t)-5:])
+		aw.last5bytes = make([]byte, 5)
+		copy(aw.last5bytes, t[len(t)-5:])
 		_, err = aw.msgWriter.Write(t[:len(t)-5])
 	} else {
-		aw.last4bytes = make([]byte, len(t))
-		aw.last4bytes = t
+		aw.last5bytes = make([]byte, len(t))
+		aw.last5bytes = t
 	}
 
 	n = len(p)
@@ -51,8 +48,8 @@ func (aw *FlateAdaptor) Write(p []byte) (n int, err error) {
 
 func (aw *FlateAdaptor) writeEndBlock() (int, error) {
 	var t []byte
-	if aw.last4bytes[4] != 0x00 {
-		t = append(aw.last4bytes, 0x00)
+	if aw.last5bytes[4] != 0x00 {
+		t = append(aw.last5bytes, 0x00)
 	}
 
 	return aw.msgWriter.Write(t[:len(t)-5])

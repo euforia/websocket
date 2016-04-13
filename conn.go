@@ -148,7 +148,8 @@ type Conn struct {
 	isServer    bool
 	subprotocol string
 
-	compression string // negotiated compression based on handshake
+	//compression string // negotiated compression based on handshake
+	compressionNegotiated bool
 
 	// Write fields
 	mu        chan bool // used as mutex to protect write to conn and closeSent
@@ -347,10 +348,8 @@ func (c *Conn) NextWriter(messageType int) (io.WriteCloser, error) {
 	var wc io.WriteCloser = messageWriter{c, c.writeSeq}
 
 	// Return compression writer on data frame
-	if len(c.compression) > 0 && c.writeCompressionEnabled && isData(messageType) {
-		//return flate.NewWriter(NewFlateAdaptor(wc), compressDeflateLevel)
+	if c.compressionNegotiated && c.writeCompressionEnabled && isData(messageType) {
 		return NewFlateAdaptorWriter(wc, compressDeflateLevel)
-		//return NewFlateWriter(wc)
 	}
 
 	return wc, nil
@@ -375,7 +374,7 @@ func (c *Conn) flushFrame(final bool, extra []byte) error {
 
 	// Check compression and that it is not a continuation frame
 	// as those should not have compression bit set per RFC
-	if len(c.compression) > 0 && c.writeCompressionEnabled && c.writeFrameType != continuationFrame {
+	if c.compressionNegotiated && c.writeCompressionEnabled && c.writeFrameType != continuationFrame {
 		b0 |= compressionBit
 	}
 
@@ -549,10 +548,8 @@ func (c *Conn) WriteMessage(messageType int, data []byte) error {
 		return err
 	}
 
-	var w messageWriter
+	if c.compressionNegotiated && c.writeCompressionEnabled {
 
-	if len(c.compression) > 0 && c.writeCompressionEnabled {
-		// TODO:
 		fw := wr.(*FlateAdaptorWriter)
 		if _, err = fw.Write(data); err != nil {
 			return err
@@ -561,7 +558,7 @@ func (c *Conn) WriteMessage(messageType int, data []byte) error {
 
 	} else {
 
-		w = wr.(messageWriter)
+		w := wr.(messageWriter)
 		if _, err = w.write(true, data); err != nil {
 			return err
 		}
@@ -572,7 +569,6 @@ func (c *Conn) WriteMessage(messageType int, data []byte) error {
 				return err
 			}
 		}
-
 	}
 
 	return nil
@@ -630,7 +626,7 @@ func (c *Conn) advanceFrame() (int, error) {
 
 	switch reserved {
 	case 4:
-		if len(c.compression) < 1 {
+		if !c.compressionNegotiated {
 			return noFrame, c.handleProtocolError("unexpected reserved bits " + strconv.Itoa(reserved))
 		}
 		// Only the first frame of a compressed message has the reserved bit set.
@@ -771,7 +767,7 @@ func (c *Conn) NextReader() (int, io.Reader, error) {
 
 		if isData(frameType) {
 			var r io.Reader = messageReader{c, c.readSeq}
-			if len(c.compression) > 0 && c.readMessageCompressed {
+			if c.compressionNegotiated && c.readMessageCompressed {
 				// Append compression bytes to output on the final read
 				r = flate.NewReader(io.MultiReader(r, strings.NewReader("\x00\x00\xff\xff\x01\x00\x00\xff\xff")))
 			}
@@ -810,7 +806,7 @@ func (r messageReader) Read(b []byte) (int, error) {
 		if r.c.readFinal {
 			r.c.readSeq++
 			// Reset compression for the next frame
-			if len(r.c.compression) > 0 && r.c.readMessageCompressed {
+			if r.c.compressionNegotiated && r.c.readMessageCompressed {
 				r.c.readMessageCompressed = false
 			}
 
