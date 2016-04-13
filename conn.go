@@ -379,14 +379,15 @@ func (c *Conn) flushFrame(final bool, extra []byte) error {
 
 	// Check compression and that it is not a continuation frame
 	// as those should not have compression bit set per RFC
-
 	if len(c.compression) > 0 && c.writeCompressionEnabled &&
 		c.writeFrameType != continuationFrame {
 
-		fmt.Println("set compress bit", c.writeFrameType)
+		//fmt.Println("set compress bit", c.writeFrameType)
 
 		b0 |= compressionBit
 	}
+
+	fmt.Println(c.writeFrameType, b0)
 
 	b1 := byte(0)
 	if !c.isServer {
