@@ -368,12 +368,14 @@ func (c *Conn) flushFrame(final bool, extra []byte) error {
 		return errInvalidControlFrame
 	}
 
+	fmt.Println(c.writeFrameType, final)
+
 	b0 := byte(c.writeFrameType)
 	if final {
 		b0 |= finalBit
 	}
 
-	fmt.Println("frame type:", c.writeFrameType)
+	fmt.Println(c.writeFrameType, b0)
 
 	// Check compression and that it is not a continuation frame
 	// as those should not have compression bit set per RFC
