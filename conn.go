@@ -9,7 +9,6 @@ import (
 	"compress/flate"
 	"encoding/binary"
 	"errors"
-	//"fmt"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -148,8 +147,7 @@ type Conn struct {
 	isServer    bool
 	subprotocol string
 
-	//compression string // negotiated compression based on handshake
-	compressionNegotiated bool
+	compressionNegotiated bool // negotiated compression based on handshake
 
 	// Write fields
 	mu        chan bool // used as mutex to protect write to conn and closeSent
