@@ -9,7 +9,7 @@ import (
 	"compress/flate"
 	"encoding/binary"
 	"errors"
-	"fmt"
+	//"fmt"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -368,26 +368,16 @@ func (c *Conn) flushFrame(final bool, extra []byte) error {
 		return errInvalidControlFrame
 	}
 
-	fmt.Println(c.writeFrameType, final)
-
 	b0 := byte(c.writeFrameType)
 	if final {
 		b0 |= finalBit
 	}
 
-	fmt.Println(c.writeFrameType, b0)
-
 	// Check compression and that it is not a continuation frame
 	// as those should not have compression bit set per RFC
-	if len(c.compression) > 0 && c.writeCompressionEnabled &&
-		c.writeFrameType != continuationFrame {
-
-		//fmt.Println("set compress bit", c.writeFrameType)
-
+	if len(c.compression) > 0 && c.writeCompressionEnabled && c.writeFrameType != continuationFrame {
 		b0 |= compressionBit
 	}
-
-	fmt.Println(c.writeFrameType, b0)
 
 	b1 := byte(0)
 	if !c.isServer {
@@ -568,11 +558,6 @@ func (c *Conn) WriteMessage(messageType int, data []byte) error {
 			return err
 		}
 		return fw.Close()
-		//cw := wr.(*FlateWriter)
-		//if _, err = cw.write(true, data); err != nil {
-		//	return err
-		//}
-		//w = cw.msgWriter.(messageWriter)
 
 	} else {
 
@@ -783,15 +768,13 @@ func (c *Conn) NextReader() (int, io.Reader, error) {
 			c.readErr = hideTempErr(err)
 			break
 		}
+
 		if isData(frameType) {
 			var r io.Reader = messageReader{c, c.readSeq}
-
 			if len(c.compression) > 0 && c.readMessageCompressed {
 				// Append compression bytes to output on the final read
 				r = flate.NewReader(io.MultiReader(r, strings.NewReader("\x00\x00\xff\xff\x01\x00\x00\xff\xff")))
-				//return frameType, flate.NewReader(messageReader{c, c.readSeq}), nil
 			}
-			//return frameType, messageReader{c, c.readSeq}, nil
 			return frameType, r, nil
 		}
 	}
