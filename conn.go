@@ -380,8 +380,10 @@ func (c *Conn) flushFrame(final bool, extra []byte) error {
 
 	if len(c.compression) > 0 && c.writeCompressionEnabled &&
 		c.writeFrameType != continuationFrame {
+
 		fmt.Println("set compress bit", c.writeFrameType)
-		//b0 |= compressionBit
+
+		b0 |= compressionBit
 	}
 
 	b1 := byte(0)
